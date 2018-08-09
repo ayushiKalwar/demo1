@@ -1,0 +1,111 @@
+
+    <div style="width: 85%;margin-left: auto;margin-right: auto;margin-top: 28px;" *ngIf="viewtype=='list'">
+    <flash-messages></flash-messages>
+      <div class="leftcls">
+        <div style="height: 318px;border-radius: 5px; border: 1px solid #d2d2d2;">
+        <div style="padding:15px;">
+          <div class="form-group">
+            <h2 class="h2head">Select Product</h2>
+          </div>
+          <div class="form-group">
+            <select class="form-control" #prolist>
+                <option value="default">--Select Product--</option>
+                <option *ngFor="let c of totalproductsbyorganization" [value]="c.id" 
+                [selected]="c.id == productid">{{c.project_name}}</option>
+            </select>
+            </div>
+          <div class="form-group btncls"><button type="submit" class="btn btn-default" (click)="loadNewProduct(prolist.value)">Submit</button></div>
+        </div>
+        </div>
+        <div style="clear:both; height: 5px;"></div>
+        
+        <div  style="height: 500px;border-radius: 5px; border: 1px solid #d2d2d2;">
+          <div style="padding:15px;">
+            Section for Later Use
+          </div>
+          
+        </div>
+        
+    
+    
+      </div>
+      <div class="rightcls">
+        <div class="headingtitle">{{titlepage}}</div>
+       <!-- <div style="margin-left: 2%;" *ngIf="technical_dept.technicaldebt">-->
+        <div>
+        <div style="width:50%; float:left;" (click)="modal2.show()">
+            <div class="firstbox addtd" align="center">
+                   <font color="black" size=2.2> {{showvelocity}}</font>
+               <!-- <font color="black" size=2.2><span [innerHTML]="showvelocity"></span></font>-->
+            <span></span>
+            </div>
+         
+            <div class="firstboxhead" (click)="modal2.show()">Velocity</div>
+        </div>
+
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{deployment_data.totalde}}</div>
+            <div class="firstboxhead">Deployment / Sprint</div>
+        </div>
+        <div style="clear:both; height: 59px;">&nbsp;</div>
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{technical_debt_data.delta_loc}}</div>		
+            <div class="firstboxhead">LOC Changed</div>
+        </div>
+        
+        
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{leadtime}}</div>		
+            <div class="firstboxhead">Lead Time</div>
+        </div>
+    
+        <div style="clear:both; height: 59px;"></div>
+    
+        <div style="width:50%; float:left;">
+         <div class="firstbox">  <span *ngIf="average_deployment_time" class="textformat"> {{average_deployment_time}}<span class="spantextformat">[-]</span></span><span *ngIf="!average_deployment_time">--<span class="spantextformat">[-]</span></span>
+         </div>	
+            <div class="firstboxhead">Average Deployment Time</div>
+        </div>
+        
+        
+        
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{deployment_data.failurede.length}}</div>		
+            <div class="firstboxhead">Failed Deployment</div>
+        </div>
+   
+        <div style="clear:both; height: 59px;"></div>
+        <div style="width:50%; float:left;">
+            <div class="firstbox"><span *ngIf="ticket_volume" class="textformat">{{ticket_volume}} <span class="spantextformat">[-]</span></span><span *ngIf="!average_deployment_time">--<span class="spantextformat">[-]</span></span></div>		
+            <div class="firstboxhead">Ticket Volume</div>
+        </div>
+        
+         
+        
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{technical_debt_data.voilation}}</div>		
+            <div class="firstboxhead">Technical Debt </div>
+        </div>
+  
+        <div style="clear:both; height: 59px;"></div>
+    
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{wip_queue_length}}</div>		
+            <div class="firstboxhead">WIP Queue Length</div>
+        </div>
+  
+        <div style="width:50%; float:left;">
+            <div class="firstbox">{{technical_debt_data.effort/60}}</div>
+            <div class="firstboxhead">Total Efforts (In hr)</div>
+        </div>
+
+        <div style="clear:both; height: 59px;"></div>
+   
+
+
+     
+        </div>
+      </div>
+      <div style="clear:both;"></div>
+      
+    </div>
