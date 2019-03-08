@@ -1,0 +1,1518 @@
+var express = require('express');
+var router = express.Router();
+//var MongoClient = require('mongodb').MongoClient;
+//var url = "mongodb://test:test@172.16.159.13:27017/stp_db";
+var config = require('dotenv').config();
+var request = require("request");
+const rp = require('request-promise');
+var moment = require('moment');
+const cassandra = require('cassandra-driver');
+const TimeUuid = require('cassandra-driver').types.TimeUuid;
+// var authProvider = new cassandra.auth.PlainTextAuthProvider(process.env.CASSANDRA_USER, process.env.CASSANDRA_PASS);
+// const client = new cassandra.Client({ contactPoints: [process.env.CASSANDRA_IP], authProvider: authProvider, keyspace: process.env.KEYSPACE});
+var async = require('async');
+const log = require('simple-node-logger').createSimpleLogger('project.log');
+var _ = require('underscore');
+var generateSafeId = require('generate-safe-id');
+
+var mysql = require('mysql');
+var con = mysql.createConnection({
+	host: process.env.MYSQL_IP,
+	user: process.env.MYSQL_USER,
+	password: process.env.MYSQL_PASS,
+	database : process.env.KEYSPACE
+});
+
+con.connect(function(err) {
+	if (err) throw err;
+	// console.log("Connected to MySQL in model");
+});
+
+module.exports = {
+	getresponse: function(productid){
+		return new Promise(function(resolve, reject) {
+			var res = [
+						{
+						  "technicalDebtViolation": 180,
+						  "sprintID": 41,
+						  "technicalDebtEffortInHours": 17,
+						  "jiraProjectKey": "NEX",
+						  "sprintVelocity": 0,
+						  "sprintName": "Sprint 5 - 1st Mar to 14th Mar",
+						  "technicalDebtViolationDensity": 16.791044776119
+						},
+						{
+						  "technicalDebtViolation": 68,
+						  "sprintID": 42,
+						  "technicalDebtEffortInHours": 7,
+						  "jiraProjectKey": "NEX",
+						  "sprintVelocity": 88,
+						  "sprintName": "Sprint 6 - 15 Mar to 28 Mar",
+						  "technicalDebtViolationDensity": 8.5106382978723
+						},
+						{
+						  "technicalDebtViolation": 274,
+						  "sprintID": 43,
+						  "technicalDebtEffortInHours": 39,
+						  "jiraProjectKey": "NEX",
+						  "sprintVelocity": 60,
+						  "sprintName": "Sprint 7 - 29 Mar to 14 Apr",
+						  "technicalDebtViolationDensity": 12.012275317843
+						},
+						{
+						  "technicalDebtViolation": 180,
+						  "sprintID": 83,
+						  "technicalDebtEffortInHours": 17,
+						  "jiraProjectKey": "NEX",
+						  "sprintVelocity": 128,
+						  "sprintName": "Sprint 8 - 13 Apr to 27 Apr",
+						  "technicalDebtViolationDensity": 16.791044776119
+						},
+						{
+						  "technicalDebtViolation": 233,
+						  "sprintID": 84,
+						  "technicalDebtEffortInHours": 18,
+						  "jiraProjectKey": "NEX",
+						  "sprintVelocity": 161,
+						  "sprintName": "Sprint 9 - 30 Apr to 11 May",
+						  "technicalDebtViolationDensity": 6.1902231668438
+						}
+					  ];
+			resolve(res);
+		});
+	},
+	
+	getsprintwisevelocity: function(){
+		return new Promise(function(resolve, reject) {
+			var res = [
+						{
+						"sprintId": 41,
+						"VelocityOfSprint": 0,
+						"wipQueueLen": 0,
+						"sprintName": "Sprint 5 - 1st Mar to 14th Mar",
+						"status":"closed"
+						},
+						{
+						"sprintId": 42,
+						"VelocityOfSprint": 88,
+						"wipQueueLen": 2,
+						"sprintName": "Sprint 6 - 15 Mar to 28 Mar",
+						"status":"closed"
+						},
+						{
+						"sprintId": 43,
+						"VelocityOfSprint": 60,
+						"wipQueueLen": 6,
+						"sprintName": "Sprint 7 - 29 Mar to 14 Apr",
+						"status":"closed"
+						},
+						{
+						"sprintId": 83,
+						"VelocityOfSprint": 128,
+						"wipQueueLen": 11,
+						"sprintName": "Sprint 8 - 13 Apr to 27 Apr",
+						"status":"closed"
+						},
+						{
+						"sprintId": 84,
+						"VelocityOfSprint": 161,
+						"wipQueueLen": 22,
+						"sprintName": "Sprint 9 - 30 Apr to 11 May",
+						"status":"closed"
+						},
+						{
+						"sprintId": 85,
+						"VelocityOfSprint": 53,
+						"wipQueueLen": 35,
+						"sprintName": "Sprint 10 - 14 May to 25 May",
+						"status":"active"
+						}
+					];
+			resolve(res);
+		});
+	},
+	
+	sendtokairos: function(data, cb){
+		console.log('http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/datapoints');
+		request.post(
+		{
+			url: 'http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/datapoints',
+			body: data,
+			json: true
+		}, function (error, response, body) {
+			if(error) reject(error);
+			cb(body);
+		});
+	},
+	
+	getVelocityoflastsprints: function(productid){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprint where project_id = '"+productid+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+		});
+	},
+	
+	getAllsprintByPKEY: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprint where project_key = '"+project_key+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+		});
+	},
+	
+	getAlltechnical_debtloc_changedByPKEY: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select delta_loc,state,project_key,index_sp,sprint_name,sprint_id,effort,violation from technical_debt where project_key = '"+project_key+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+		});
+	},
+	
+	getLatestClosedSprintdeployment: function(productid){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprint where project_id = '"+productid+"' ALLOW FILTERING";
+			con.query("select * from sprint where project_id = '"+productid+"'", function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	var new_arr = sort_by_key_value(result.rows, 'index_sp').reverse();
+			// 	resolve(new_arr);
+			// });
+		});
+	},
+	
+	getallaboutproject: function(productid){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from project where id = "+productid+" ALLOW FILTERING";
+			var query2 = "select * from project where id = '"+productid+"'" ;
+			con.query(query2, function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	}, 
+	
+	deleteProjectRecordFromSprintById: function(sprint_pk){
+		return new Promise(function(resolve, reject) {
+			var query = "delete from sprint where id = '"+sprint_pk+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve(true);
+			});
+		});
+	},
+	
+	getAllSprintsOfSameProjectKey: function(project_key, cb){
+		var query = "select * from sprint where project_key = '"+project_key+"' ALLOW FILTERING";
+		con.query("select * from sprint where project_key = '"+project_key+"'", function(err, result) {
+			if(err) throw err;
+			cb(result);
+		});
+		// client.execute(query, function(err, result) {
+		// 	if(err) throw err;
+		// 	cb(result.rows);
+		// });
+	},
+	
+	deleteProjectRecordFromTechnicalDebtById: function(td_pk){
+		return new Promise(function(resolve, reject) {
+			var query = "delete from technical_debt where id = '"+td_pk+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve(true);
+			});
+		});
+	},
+	
+	getPkIdFromSprintByKey: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select id from sprint where project_key = '"+project_key+"' ALLOW FILTERING";
+			con.query("select id from sprint where project_key = '"+project_key+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	getSprintDetailAPIByProjectKey: function(project_key){
+		console.log(process.env.JAVA_APIS_BASE_URL+'getJiraSprintsForProject?projetKey='+project_key);
+		return new Promise(function(resolve, reject) {
+			request.get({
+				url: process.env.JAVA_APIS_BASE_URL+'getJiraSprintsForProject?projetKey='+project_key,
+				json: true
+			}, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+	
+	getAllDeploymentRecordByProjectKey: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select id from deployment where project_key = '"+project_key+"' ALLOW FILTERING";
+			con.query("select id from deployment where project_key = '"+project_key+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	deleteDeploymentOfSameId: function(deploymentid, cb){
+		var query = "delete from deployment where id = '"+deploymentid+"'";
+		con.query(query, function(err, result) {
+			if(err) throw err;
+			cb(query);
+		});
+	},
+	
+	insertSprintsForSpecificProject: function(sprints,project_key, cb){
+		var uuid = TimeUuid.now();
+		var inserted_ts = moment.utc().valueOf();
+		deleteAllRecordForThisProjectFromKairosdb(project_key, function(data1){
+		if(sprints.length>0) {
+			var dataforkairosVelocity = [];
+			var i = 1;
+			async.forEach(sprints, function (item, callback){ 
+				if(item.sprintCompleteDate){
+					var ct = item.sprintCompleteDate;
+				} else {
+					var ct = null;
+				}
+				if(item.sprintEndDate){
+					var et = item.sprintEndDate;
+				} else {
+					var et = null;
+				}
+				if(item.sprintStartDateTS){
+					var sdts = item.sprintStartDateTS;
+				} else {
+					var sdts = null;
+				}
+				if(item.sprintCompleteDateTS){
+					var cdts = item.sprintCompleteDateTS;
+				} else {
+					var cdts = null;
+				}
+				if(item.sprintEndDateTS){
+					var edts = item.sprintEndDateTS;
+				} else {
+					var edts = null;
+				}
+				if(item.sortIndex) {
+					var sortIndex = item.sortIndex;
+				} else {
+					var sortIndex = null;
+				}
+				var inserted_ts = moment.utc().valueOf();
+				//log.info("test aaya");
+				getEntitiesofSprints(project_key.replace(/'/g, "\\'"), item.id, function(data){
+					var data = data[0][0];
+					//console.log(data)
+					var bugcount = null;
+					var cycletime = null;
+					var technicalDebtEffortInHours = null;
+					var wipQueueLength = null;
+					var sprintVelocity = null;
+					var leadTime = null;
+					var technicalDebtViolationDensity = null;
+					if(data!="none") {
+						bugcount = data.bugCount;
+						cycletime = data.cycleTime;
+						technicalDebtEffortInHours = data.technicalDebtEffortInHours;
+						wipQueueLength = data.wipQueueLength;
+						sprintVelocity = data.sprintVelocity;
+						leadTime = data.leadTime;
+						technicalDebtViolationDensity = data.technicalDebtViolationDensity;
+					}
+					var q = "insert into sprint(id, index_sp, sprint_id, bug_count, complete_date, cycle_time, end_date, inserted_ts, lead_time, project_id, project_key, sprint_name, start_date, state, velocity, wip_count, sprintstartdatets, sprintenddatets, sprintcompletedatets) values("+TimeUuid.now()+",'"+sortIndex+"','"+item.id+"',"+bugcount+",'"+ct+"','"+cycletime+"', '"+et+"', "+inserted_ts+", '"+leadTime+"', '"+uuid+"', '"+project_key.replace(/'/g, "\\'")+"', '"+(item.sprintName).replace(/'/g, "\\'")+"', '"+item.sprintStartDate+"', '"+item.state+"', "+sprintVelocity+", "+wipQueueLength+", '"+sdts+"', '"+edts+"', '"+cdts+"')";
+					//log.info(q);
+					
+					if(sprintVelocity!=="undefined" && item.state=="closed") {
+						var v = "velocitydemo_"+project_key.replace(/'/g, "\\'");
+						request.post(
+						{
+							url: 'http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/datapoints',
+							body: [{"name":v,"timestamp":new Date().getTime()+i, "value":sprintVelocity, "tags":{"productname":project_key, "entityname":"velocity", "sprintid":item.id, "sprintname":(item.sprintName).replace(/'/g, "\\'")}}],
+							json: true
+						}, function (error, response, body) {
+							if(error) reject(error);
+							console.log(body);
+						});
+						var v = "velocityforstandarddeviation_"+project_key.replace(/'/g, "\\'");
+						request.post(
+						{
+							url: 'http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/datapoints',
+							body: [{"name":v,"timestamp":new Date().getTime()+i, "value":sprintVelocity, "tags":{"productname":project_key, "entityname":"standarddeviation", "sprintid":item.id, "sprintname":(item.sprintName).replace(/'/g, "\\'")}}],
+							json: true
+						}, function (error, response, body) {
+							if(error) reject(error);
+							console.log(body);
+						});							
+					}
+						
+					con.query(q, function(err, result) {
+						console.log(q);
+						i++;
+					});
+					callback();
+				});
+			}, function() {
+				cb('done');
+			});
+		}
+		});
+	},
+	
+	getTechnicalDebtProjectKeyRecords: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from technical_debt where project_key = '"+project_key+"' ALLOW FILTERING";
+			con.query("select * from technical_debt where project_key = '"+project_key+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	insertechnicaldebt: function(data, sprintname, sprintid, sprintpk, index_sp, project_key, state, cb){
+		var data = JSON.parse(data);
+		var inserted_ts = moment.utc().valueOf();
+		
+		var q = "insert into technical_debt(id,effort,inserted_ts,sonar_project_name,sprint_id,sprint_name,tfs_branch,violation,sprint_pk,loc,index_sp,project_key,state,delta_loc) values("+TimeUuid.now()+", "+data[0].sqale_index+", "+inserted_ts+", '"+sprintname+"', "+sprintid+", '"+sprintname+"', "+null+", "+data[3].violations+", '"+sprintpk+"', "+data[1].ncloc+", '"+index_sp+"', '"+project_key+"', '"+state+"', "+data[2].deltaLOC+")";
+		con.query(q, function(err, result) {
+			log.info(q);
+		});
+		
+	},
+
+	gettechnicaldebtforsprint: function(spname, cb){
+		console.log(process.env.JAVA_APIS_BASE_URL+'getTechnicalDebtForSprint?sprintName='+spname);
+		request.get(process.env.JAVA_APIS_BASE_URL+'getTechnicalDebtForSprint?sprintName='+spname, function (error, response, body) {
+			cb(body)
+		});
+	},
+
+	getdeploymentforsprint: function(spname, cb){
+		console.log(process.env.JAVA_APIS_BASE_URL+'getJenkinsDeploymentInfoForSprint?sprintName='+spname.replace(/ /g,''));
+		request.get(process.env.JAVA_APIS_BASE_URL+'getJenkinsDeploymentInfoForSprint?sprintName='+spname.replace(/ /g,''), function (error, response, body) {
+			cb(body)
+		});
+	},
+	
+	
+	insertdeployment: function(data, sprintname, sprintid, sprintpk, project_key, cb){
+		var data = JSON.parse(data);
+		var inserted_ts = moment.utc().valueOf();
+		async.forEach(data, function (item, callback){ 
+			if((item.artifactsList).length==0) {
+				var artifact_filename = null;
+			} else {
+				var artifact_filename = item.artifactsList[0].fileName;
+			}
+			if((item.artifactsList).length==0) {
+				var artifact_version = null;
+			} else {
+				var artifact_version = item.artifactsList[0].version;
+			}
+			var query = "insert into deployment(id, artifact_name, build_no, deployment_date, env_name, inserted_ts, sprint_name, sprint_pk ,status, target_host_name, tfs_branch, version, sprint_id, duration, project_key) values("+TimeUuid.now()+", '"+artifact_filename+"', "+item.number+", '"+item.deploymentDate+"', '"+item.actionsList[0].parametersList[1].value+"', "+inserted_ts+", '"+sprintname+"', '"+sprintpk+"', '"+item.result+"', '"+item.actionsList[0].parametersList[0].value+"', "+null+", '"+artifact_version+"', "+sprintid+", '4', '"+project_key+"')";
+			//console.log(query);
+			con.query(query, function(err, result) {
+				callback();
+			});
+		}, function() {
+			cb();
+		});
+	},
+
+
+	gettechnical_debt: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from technical_debt where project_key = '"+project_key+"' ALLOW FILTERING";
+			con.query("select * from technical_debt where project_key = '"+project_key+"'", function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	var new_arr = sort_by_key_value(result.rows, 'index_sp').reverse();
+			// 	resolve(new_arr);
+			// });
+		});
+	},
+	
+	gettechnical_debtR: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from technical_debt where project_key = '"+project_key+"' ALLOW FILTERING";
+			con.query("select * from technical_debt where project_key = '"+project_key+"'", function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp');
+				resolve(new_arr);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	var new_arr = sort_by_key_value(result.rows, 'index_sp');
+			// 	resolve(new_arr);
+			// });
+		});
+	},
+	
+	get_deployment: function(project_key){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from deployment where project_key = '"+project_key+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				resolve(new_arr);
+			});
+		});
+	},
+	
+	getAllsprints: function(project_key, cb){
+		var query = "select * from sprint where project_key = '"+project_key+"' ALLOW FILTERING";
+		con.query("select * from sprint where project_key = '"+project_key+"'", function(err, result) {
+			if(err) throw err;
+			var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+			cb(new_arr);
+		});
+		// client.execute(query, function(err, result) {
+		// 	if(err) throw err;
+		// 	var new_arr = sort_by_key_value(result.rows, 'index_sp').reverse();
+		// 	cb(new_arr);
+		// });
+	},
+	
+	getAllsprintsR: function(project_key, cb){
+		var query = "select * from sprint where project_key = '"+project_key+"' ALLOW FILTERING";
+		con.query("select * from sprint where project_key = '"+project_key+"'", function(err, result) {
+			if(err) throw err;
+			var new_arr = sort_by_key_value(result, 'index_sp');
+			cb(new_arr);
+		});
+		// client.execute(query, function(err, result) {
+		// 	if(err) throw err;
+		// 	var new_arr = sort_by_key_value(result.rows, 'index_sp');
+		// 	cb(new_arr);
+		// });
+	},
+	
+	checklatestsprint: function(sprintid,project_key){
+		return new Promise(function(resolve, reject) {
+			var url = process.env.JAVA_APIS_BASE_URL+'getJiraSprintsForProject?projetKey='+project_key;
+			request.get(url, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+	
+	getSameSprint: function(sprintid,projectKey){
+		return new Promise(function(resolve, reject) {
+			var url = process.env.JAVA_APIS_BASE_URL+'getSprintDetailFromSprintId?projectKey='+projectKey+'&sprintID='+sprintid;
+			request.get(url, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+
+	updateSprint: function(sprintpk, object){
+		return new Promise(function(resolve, reject) {
+			var query = "update sprint set bug_count = "+object.bugCount+", cycle_time = '"+object.cycleTime+"', lead_time = '"+object.leadTime+"', velocity = "+object.sprintVelocity+", wip_count = "+object.wipQueueLength+" where id = "+sprintpk+"";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+		});
+	},
+	
+	getTechnicalDebtPK: function(sprintid,projectKey){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from technical_debt where sprint_id = "+sprintid+" AND project_key = '"+projectKey+"' ALLOW FILTERING";
+			con.query("select * from technical_debt where sprint_id = "+sprintid+" AND project_key = '"+projectKey+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	getRecordFromDeploymentOfSameProjectKey: function(sprint_id){
+		return new Promise(function(resolve, reject) {
+			var query = "select id from deployment where sprint_id = "+sprint_id+" ALLOW FILTERING";
+			con.query("select id from deployment where sprint_id = '"+sprint_id+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	deleteAllDeploymentById: function(idArray, cb){
+		async.forEach(idArray, function (item, callback){ 
+			var query = "delete from deployment where id = '"+item.id+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+			});
+		}, function(){
+			cb('true');
+		});
+	},
+	
+	getdeploymentforsprint: function(spname, cb){
+		console.log(process.env.JAVA_APIS_BASE_URL+'getJenkinsDeploymentInfoForSprint?sprintName='+spname.replace(/ /g,''));
+		request.get(process.env.JAVA_APIS_BASE_URL+'getJenkinsDeploymentInfoForSprint?sprintName='+spname.replace(/ /g,''), function (error, response, body) {
+			cb(body)
+		});
+	},
+
+	insertdeployment: function(data, sprintname, sprintid, sprintpk, project_key, cb){
+		var data = JSON.parse(data);
+		var inserted_ts = moment.utc().valueOf();
+		async.forEach(data, function (item, callback){ 
+			if((item.artifactsList).length==0) {
+				var artifact_filename = null;
+			} else {
+				var artifact_filename = item.artifactsList[0].fileName;
+			}
+			if((item.artifactsList).length==0) {
+				var artifact_version = null;
+			} else {
+				var artifact_version = item.artifactsList[0].version;
+			}
+			var query = "insert into deployment(id, artifact_name, build_no, deployment_date, env_name, inserted_ts, sprint_name, sprint_pk ,status, target_host_name, tfs_branch, version, sprint_id, duration, project_key) values("+TimeUuid.now()+", '"+artifact_filename+"', "+item.number+", '"+item.deploymentDate+"', '"+item.actionsList[0].parametersList[1].value+"', "+inserted_ts+", '"+sprintname+"', '"+sprintpk+"', '"+item.result+"', '"+item.actionsList[0].parametersList[0].value+"', "+null+", '"+artifact_version+"', "+sprintid+", '4', '"+project_key+"')";
+			con.query(query, function(err, result) {
+				callback();
+			});
+		}, function() {
+			cb();
+		});
+	},
+
+	deleteThisTechnicalDebt: function(object){
+		return new Promise(function(resolve, reject) {
+			var query = "delete from technical_debt where id = '"+object[0].id+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve();
+			});
+		});
+	},
+	
+	getTechnicalDebtForThisSprint: function(object, cb){
+		request.get(process.env.JAVA_APIS_BASE_URL+'getTechnicalDebtForSprint?sprintName='+object[0].sprint_name, function (error, response, body) {
+			cb(body)
+		});
+	},
+	
+	updateTechnicalDebtForActiveSprint: function(id,data){
+		console.log(id);
+		return new Promise(function(resolve, reject) {
+			var dataP = JSON.parse(data);
+			var q = "update technical_debt set delta_loc = "+dataP[2].deltaLOC+", effort = "+dataP[0].sqale_index+", loc = "+dataP[1].ncloc+", violation = "+dataP[3].violations+" where id = "+id+"";
+			con.query(q, function(err, result) {
+				resolve(q);
+			});
+		});	
+	},
+	
+
+	reverseJSON: function(object){
+		return new Promise(function(resolve, reject) {
+			var new_arr = sort_by_key_value(object, 'sortIndex');
+			resolve(new_arr);
+		});
+	},
+	
+	getDeploymentData: function(sprint_id){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from deployment where sprint_pk = '"+sprint_id+"' ALLOW FILTERING";
+			con.query("select * from deployment where sprint_pk = '"+sprint_id+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		});
+	},
+	
+	getLatestClosedSprint: function(productid){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprints where productid = '"+productid+"' ALLOW FILTERING";
+			con.query("select * from sprints where productid = '"+productid+"'", function(err, result) {
+				if(err) throw err;
+				resolve(JSON.parse(result[0].sprintjson).values);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(JSON.parse(result.rows[0].sprintjson).values);
+			// });
+		});
+	},
+	
+	getlocvalue: function(sprintid){
+		return new Promise(function(resolve, reject) {
+			var query = "select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'loc'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve(result[0]);
+			});
+		});
+	},
+	
+	getlocvaluenp: function(sprintid){
+		return new Promise(function(resolve, reject) {
+			var query = "select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'loc' ALLOW FILTERING";
+			con.query("select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'loc'", function(err, result) {
+				if(err) throw err;
+				resolve (result[0]);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve (result.rows[0]);
+			// });
+		});
+	},
+	
+	getlocvaluecycletime: function(sprintid){
+		return new Promise(function(resolve, reject) {
+			var query = "select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'cycle_time_in_days' ALLOW FILTERING";
+			con.query("select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'cycle_time_in_days'", function(err, result) {
+				if(err) throw err;
+				resolve (result[0]);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve (result.rows[0]);
+			// });
+		});
+	},
+	
+	compareSecondColumn: function(a, b){
+    if (a[1] === b[1]) {
+        return 0;
+    }
+    else {
+        return (a[1] < b[1]) ? -1 : 1;
+    }
+	},
+	
+	gettdebtvalue: function(sprintid){
+		return new Promise(function(resolve, reject) {
+			var query = "select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'technical_debt' ALLOW FILTERING";
+			con.query("select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'technical_debt'", function(err, result) {
+				if(err) throw err;
+				resolve(result[0]);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows[0]);
+			// });
+		});
+	},
+	
+	geteffortsvalue: function(sprintid){
+		return new Promise(function(resolve, reject) {
+			var query = "select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'totalefforts' ALLOW FILTERING";
+			con.query("select attribute_value from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'totalefforts'", function(err, result) {
+				if(err) throw err;
+				resolve(result.rows[0]);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows[0]);
+			// });
+		});
+	},
+	
+	deletedatafaketable: function(data){
+		return new Promise(function(resolve, reject) {
+			con.query("truncate faketable", function(err, result) {
+				if(err) throw err;
+				resolve(data);
+			});
+		});
+	},
+	
+	insertdatafaketable: function(object){
+		return new Promise(function(resolve, reject) {
+			var query = "insert into faketable(id, dcuttt,dcutwt,dqatt,dqawt,dtptt,dtpwt,functesttt,functestwt,integrationenvtt,integrationenvwt,nfrtt,nfrwt,recruitmenttt,recruitmentwt,rnfrtt,rnfrwt,scadevcovtt,scadevcovwt, tollgatett,tollgatewt) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+			con.query(query, [TimeUuid.now(), object.dcuttt, object.dcutwt, object.dqatt, object.dqawt, object.dtptt, object.dtpwt, object.functesttt, object.functestwt, object.integrationenvtt, object.integrationenvwt, object.nfrtt, object.nfrwt, object.recruitmenttt, object.recruitmentwt, object.rnfrtt, object.rnfrwt, object.scadevcovtt, object.scadevcovwt, object. tollgatett, object.tollgatewt], function(err, result) {
+				if(err) throw err;
+				resolve('success');
+			});
+		});
+	},
+	
+	getsprintEntitiesDataFromMongo: function(){
+		return new Promise(function(resolve, reject) {
+			MongoClient.connect(url, function(err, db) {
+			  if (err) throw err;
+			  var dbo = db.db("stp_db");
+			  var myobj = { name: "Company Inc", address: "Highway 37" };
+			  dbo.collection("sprint_entities").find().toArray(function(err, result) {
+				if (err) throw err;
+				resolve(result);
+				db.close();
+			  });
+			});
+		});
+	},
+	
+	insertintocassandrase: function(object){
+		async.forEach(object, function (item, callback){ 
+			////////console.log(item);
+			var query = "insert into sprint_entities(id, EndDate, SerialNo, OrgID, ProdID, Sprint, UserStory, StoryPoints, StartDate) values(?,?,?,?,?,?,?,?,?)";
+			con.query(query, [TimeUuid.now(), item.EndDate, item.SerialNo, item.OrgID, item.ProdID, item.Sprint, item.UserStory, item.StoryPoints, item.StartDate], function(err, result) {
+				if(err) throw err;
+				callback();
+			});
+			}, function() {
+				console.log('insertedsssssssssss');
+		});
+	},
+	
+	getProductKey: function(product_id){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from products where id = '"+product_id+"' ALLOW FILTERING";
+			con.query("select * from products where id = '"+product_id+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		})
+	},
+	
+	getSprintDataforsinglePro: function(prodkey){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprints where prodkey = '"+prodkey+"' ALLOW FILTERING";
+			con.query("select * from sprints where prodkey = '"+prodkey+"'", function(err, result) {
+				if(err) throw err;
+				resolve(result);
+			});
+			// client.execute(query, function(err, result) {
+			// 	if(err) throw err;
+			// 	resolve(result.rows);
+			// });
+		})
+	},
+	
+	firstfunction: function(){
+		MongoClient.connect(url, function(err, db) {
+		  if (err) throw err;
+		  var dbo = db.db("stp_db");
+		  var myobj = { name: "Company Inc", address: "Highway 37" };
+		  dbo.createCollection("customers", function(err, res) {
+			if (err) throw err;
+			console.log("Collection created!");
+			db.close();
+		  });
+		});
+		return 'aaaaaa';
+	},
+	
+	checkforemailexist: function(email){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from users where username = '"+email+"'";
+			con.query(query, function(err, result) {
+				if(err) throw err;
+				resolve(result.length);
+			});
+		})
+	},
+	
+	insertintousers :  function(object){
+		return new Promise(function(resolve, reject) {
+			var query = "insert into users(id,country,domain,name,password,phone,user_type,username,website) values(?,?,?,?,?,?,?,?,?)";
+			con.query(query, [TimeUuid.now(),object.countryselected,object.domain,object.name,object.cpsw,object.phone,'manager',object.email,object.website], function(err, result) {
+				if(err) throw err;
+				resolve('entered');
+			});
+		})
+	},
+	
+	getSprintData: function(url){
+		return new Promise(function(resolve, reject) {
+			request.get(url, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+	
+	getAPIres: function(url, cb){
+		var body = [
+						{
+							"StdDeviationForTechDebtEffortHrs": 11.738824472663351,
+							"StdDeviationForTechDebtViolation": 77.3692445355388
+						},
+						[
+							{
+								"technicalDebtViolation": 180,
+								"technicalDebtEffortInHours": 17,
+								"jiraProjectKey": "NEX",
+								"sprintName": "Sprint 5 - 1st Mar to 14th Mar",
+								"technicalDebtViolationDensity": 16.791044776119403
+							},
+							{
+								"technicalDebtViolation": 68,
+								"technicalDebtEffortInHours": 7,
+								"jiraProjectKey": "NEX",
+								"sprintName": "Sprint 6 - 15 Mar to 28 Mar",
+								"technicalDebtViolationDensity": 8.51063829787234
+							},
+							{
+								"technicalDebtViolation": 274,
+								"technicalDebtEffortInHours": 39,
+								"jiraProjectKey": "NEX",
+								"sprintName": "Sprint 7 - 29 Mar to 14 Apr",
+								"technicalDebtViolationDensity": 12.012275317843052
+							},
+							{
+								"technicalDebtViolation": 180,
+								"technicalDebtEffortInHours": 17,
+								"jiraProjectKey": "NEX",
+								"sprintName": "Sprint 8 - 13 Apr to 27 Apr",
+								"technicalDebtViolationDensity": 16.791044776119403
+							},
+							{
+								"technicalDebtViolation": 233,
+								"technicalDebtEffortInHours": 18,
+								"jiraProjectKey": "NEX",
+								"sprintName": "Sprint 9 - 30 Apr to 11 May",
+								"technicalDebtViolationDensity": 6.190223166843784
+							}
+						]
+					];
+		cb(body);
+
+		/*
+		request.get(url, function (error, response, body) {
+			if(error) reject(error);
+			cb(body);
+		});
+		*/
+	},
+	
+	getJiraProjectData: function(url){
+		return new Promise(function(resolve, reject) {
+			request.get(url, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+	
+	getAllJiraProject: function(){
+		var url = 'http://172.16.13.71:8090/da/getAllJiraProjects';
+		return new Promise(function(resolve, reject) {
+			request.get(url, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	},
+	
+	getAllJiraProjectFromCassandra: function(){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from products limit 10";
+			con.query(query, function(err, data) {
+				if(err) throw err;
+				resolve(data.rows);
+			});
+		});
+	},
+	
+	getSprintdataF: function(prodkey, callback){
+		var url = 'http://172.16.151.97:8090/da/getJiraSprintsForProject?projetKey='+prodkey;
+		request.get(url, function (error, response, body) {
+			if(error) callback(error);
+			callback(body)
+		});
+	},
+	
+	insertsprintintocassandra: function(sprintjson, storypoints, productkey, callback){
+		var noofstories = Math.floor(Math.random()*(20-1+1)+1);
+		log.info("storypoints = "+storypoints);
+		var query = "insert into sprints(id,class,noofstories,prodkey,sprintjson,storypoints) values(?,?,?,?,?,?)";
+		con.query("insert into sprints(id,class,noofstories,prodkey,sprintjson,storypoints) values("+TimeUuid.now()+",'com.mphasis.stp.da.beans.Sprint','"+noofstories+"','"+productkey+"','"+JSON.stringify(sprintjson)+"','"+storypoints+"')", function(err, data) {
+				if(err) { throw err; } else { callback('inserted'); }
+			});
+	},
+	
+	insertintodatabaseinproducts: function(item,i){
+		return new Promise(function(resolve, reject) {
+			var query = "insert into products(id,paging,productname,class,jiraboardname,methodology,organization,productkey,created_at,is_active) values(?,?,?,?,?,?,?,?,?,?)";
+			con.query(query, [TimeUuid.now(),i,item.productName, null, null, 'scrum', null, item.productKey, new moment().format('YYYY-MM-DDThh:mm:ssZ'), '0'], { prepare : true }, function(err, data) {
+				if(err) throw err;
+				resolve(item);
+			});
+		});
+	},
+	
+	getSprintRecord: function(prod_id){
+		return new Promise(function(resolve, reject) {
+			var query = "select * from sprints where productid = '"+prod_id+"'";
+			con.query(query, function(err, data) {
+				if(err) throw err;
+				resolve(data);
+			});
+		});
+	},
+	
+	getactiveclosedonly: function(sprintdata){
+		return new Promise(function(resolve, reject) {
+			var finalresult = [];
+			if(sprintdata.length>0) {
+			for(var i=0; i<sprintdata.length; i++){
+				if(sprintdata[i].state=="closed"){
+					finalresult.push(sprintdata[i]);
+				}
+			}
+				resolve(finalresult);
+			} else {
+				resolve(finalresult);
+			}
+		});
+	},
+	
+	calculateaverageofclosedsprints: function(sprintdata){
+		return new Promise(function(resolve, reject) {
+			var sprintsname = [];
+			var avg = 0;
+			for(var i=0; i<sprintdata.length; i++){
+				if(sprintdata[i].state=="closed"){
+					avg += parseInt(sprintdata[i].VelocityOfSprint);
+				}
+				if(sprintdata[i].state=="closed"){
+					sprintsname.push(sprintdata[i].name);
+				}
+			}
+			resolve({"sprintdata":sprintdata, "avg": avg/(i+1), "sprintname":sprintsname });
+		});
+	},
+	
+	getRecordFromProducts: function(page){
+		return new Promise(function(resolve, reject) {
+			var skip = (parseInt(page)*10)-10;
+			//var query = "select * from project where paging > "+skip+" AND project_key = 'NEX' limit 10 ALLOW FILTERING";
+			con.query("select * from project where paging > "+skip+" AND project_key = 'NEX' limit 10", function(err, data) {
+				if(err) throw err;
+				resolve(data);
+			});
+			// client.execute(query, function(err, data) {
+			// 	if(err) reject( err);
+			// 	console.log("Cassandra getRecordFromProducts")
+			// 	console.log(data);
+			// 	resolve(data);
+			//  });
+		});
+	},
+	
+	getVelocityCalculated: function(productwithleadtime, callback){
+		var query = "select * from sprints where prodKey = '"+productwithleadtime.product.productkey+"'";
+		con.query(query, function(err, result) {
+			if(err) throw err;
+			if(result[0]) {
+				var values = JSON.parse(result[0].sprintjson).values;
+				var allsps = [];
+				var i = (values).length - 5;
+				var velocitygraph = [];
+				for(;i<((values).length);i++){
+					if(values[i].VelocityOfSprint) {
+						allsps.push(values[i].VelocityOfSprint);
+						
+					}
+					if(values[i].state == "closed")
+					velocitygraph.push({"sprintname":values[i].name, "velocity":values[i].VelocityOfSprint});
+				}
+				var sum = allsps.reduce(function(allsps, b) { return allsps + b; }, 0);
+				var velocity = (parseInt(sum)/parseInt(allsps.length));
+				var lastestclosedsprint = [];
+				for(var i=(values.length-1); i>=0; i--){
+					if(lastestclosedsprint.length==0 && values[i].state=="closed")
+					lastestclosedsprint.push(values[i]);
+				}
+				var lastelementofarray = lastestclosedsprint[0];
+				
+				
+				var lastelementvelocity = lastelementofarray.VelocityOfSprint;
+				
+				var gettenpercentofvelocity = ((velocity/100) * 10);
+				
+				var maxrange = parseFloat(velocity)+parseFloat(gettenpercentofvelocity);
+				var minrange = parseFloat(velocity)-parseFloat(gettenpercentofvelocity);
+				
+				//calculate color here
+				if(lastelementvelocity>=minrange && lastelementvelocity<=maxrange){
+					// blue
+					var color = 'info';
+				} else if(lastelementvelocity<minrange) {
+					// red
+					var color = 'danger';
+				} else if(lastelementvelocity>maxrange) {
+					//green
+					var color = 'success';
+				}
+				
+				var lastsprintvelocityinpercent = (lastelementvelocity/100)*velocity;
+				
+				gettdissues(productwithleadtime.product.id, function(technicaldeptrec){
+					productwithleadtime.technicaldebt	= 	technicaldeptrec.rows[0].technicaldebt;
+					productwithleadtime.totalissues 	= 	(technicaldeptrec.rows[0].totalissues)/60;
+					productwithleadtime.loc_changed 	= 	technicaldeptrec.rows[0].loc_changed;
+					productwithleadtime.avgvelocityprevioussprint = velocity;
+					productwithleadtime.lastsprintvelocity = lastelementvelocity;
+					productwithleadtime.velocitytimecolor = color;
+					productwithleadtime.lastsprintvelocityinpercent = lastsprintvelocityinpercent;
+					productwithleadtime.velocitygraph = velocitygraph;
+					callback(productwithleadtime);
+				});
+			} else {
+				callback({productwithleadtime, "velocity": ""});
+			}
+		});	
+	},
+	
+	getLeadTimeCalculated: function(product,callback){
+		
+		var query = "select * from sprint where project_key = '"+product.project_key+"'";
+		con.query(query, function(err, result) {
+			if(err) throw err;
+			
+			if((result).length>0){
+				//getting lastest closed sprint
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				var leadtimeoflastclosedsprint = parseInt(new_arr[0].lead_time);
+				var velocityoflastclosedsprint = parseInt(new_arr[0].velocity);
+				var bugcountoflastclosedsprint = parseInt(new_arr[0].bug_count);
+				var allleadtime = [];
+				var allvelocity = [];
+				var sprintsvelocity = [];
+				var sprintsleadtime = [];
+				async.forEach(result, function (item, cb){ 
+					if(item.state == "closed"){
+						//Now calculate average leadtime of closed sprints
+						//console.log("item.lead_time");
+						allleadtime.push(parseInt(item.lead_time));
+						allvelocity.push(parseInt(item.velocity));
+						sprintsvelocity.push({"sprintname":item.sprint_name, "velocity":item.velocity});
+						sprintsleadtime.push({"sprintname":item.sprint_name, "leadtime":item.lead_time});
+						cb();
+					}
+				});
+				//console.log(allleadtime);
+				//console.log(allvelocity);
+				var sumofleadtimes = allleadtime.reduce(function(a, b) { return a + b; });
+				var avgofleadtimes = sumofleadtimes/(allleadtime.length);
+				var gettenpercentofleadtime = ((avgofleadtimes/100) * 10);
+				var maxLeadtimeRange = avgofleadtimes+gettenpercentofleadtime;
+				var minLeadtimeRange = avgofleadtimes-gettenpercentofleadtime;
+				if(leadtimeoflastclosedsprint>=minLeadtimeRange && leadtimeoflastclosedsprint<=maxLeadtimeRange){
+					// blue
+					var colorLT = 'info';
+				} else if(leadtimeoflastclosedsprint<minLeadtimeRange) {
+					// red
+					var colorLT = 'success';
+				} else if(leadtimeoflastclosedsprint>maxLeadtimeRange) {
+					//green
+					var colorLT = 'danger';
+				}
+				
+				var sumofvelocities = allvelocity.reduce(function(a, b) { return a + b; });
+				var avgofvelocities = sumofvelocities/(allvelocity.length);
+				var gettenpercentofvelocity = ((avgofvelocities/100) * 10);
+				var maxVelocityRange = avgofvelocities+gettenpercentofvelocity;
+				var minVelocityRange = avgofvelocities-gettenpercentofvelocity;
+				if(velocityoflastclosedsprint>=minVelocityRange && velocityoflastclosedsprint<=maxVelocityRange){
+					// blue
+					var colorV = 'info';
+				} else if(velocityoflastclosedsprint<minVelocityRange) {
+					// red
+					var colorV = 'danger';
+				} else if(velocityoflastclosedsprint>maxVelocityRange) {
+					//green
+					var colorV = 'success';
+				}	
+				//console.log(colorLT);
+				//console.log(colorV);
+				
+				callback({"currentVelocity":velocityoflastclosedsprint, "currentLeadTime":leadtimeoflastclosedsprint, "AvgVelocity":avgofvelocities, "AvgLeadtime":avgofleadtimes, "colorLT": colorLT, "colorV":colorV, "bugcountoflastclosedsprint":bugcountoflastclosedsprint, "velocitygraph":sprintsvelocity, "sprintsleadtime":sprintsleadtime});
+			} else {
+				callback({"currentVelocity":0, "currentLeadTime":0, "AvgVelocity":0, "AvgLeadtime":0, "colorLT": 0, "colorV":0, "bugcountoflastclosedsprint":0, "velocitygraph":0, "sprintsleadtime":0,"status":false});
+			} 
+		});
+	},
+	
+	getTbCalculated: function(product,callback){
+		var query = "select * from technical_debt where project_key = '"+product.project_key+"'";
+		con.query(query, function(err, result) {
+			if(err) throw err;
+			if((result).length>0){
+				var new_arr = sort_by_key_value(result, 'index_sp').reverse();
+				var latestclosedsprintTB = new_arr[0].violation;
+				var allTB = [];
+				async.forEach(new_arr, function (item, cb){ 
+					if(item.state == "closed"){
+						//Now calculate average leadtime of closed sprints
+						allTB.push(parseInt(item.violation));
+						cb();
+					}
+				});
+				var sumofTB = allTB.reduce(function(a, b) { return a + b; });
+				var avgofTBs = sumofTB/(allTB.length);
+				var gettenpercentofTB = ((avgofTBs/100) * 10);
+				var maxTBRange = avgofTBs+gettenpercentofTB;
+				var minTBRange = avgofTBs-gettenpercentofTB;
+				if(latestclosedsprintTB>=minTBRange && latestclosedsprintTB<=maxTBRange){
+					// blue
+					var colorTB = 'info';
+				} else if(latestclosedsprintTB<minTBRange) {
+					// red
+					var colorTB = 'success';
+				} else if(latestclosedsprintTB>maxTBRange) {
+					//green
+					var colorTB = 'danger';
+				}	
+				callback({"currentTd":latestclosedsprintTB, "AvgTd":avgofTBs, "colorTd": colorTB});
+			}
+		});
+	},
+	
+	/*
+	getLeadTimeCalculated: function(product,callback){
+			var query = "select * from sprint where prodKey = '"+product.project_key+"' ALLOW FILTERING";
+			
+			client.execute(query, function(err, result) {
+				if(err) throw err;
+				if(result.rows[0]) {
+					var values = JSON.parse(result.rows[0].sprintjson).values;
+					var avgclosedsprints = [];
+					//var lastelement  = values.slice(-1)[0];
+					//var secondlastelement  = values.slice(-2)[0];
+
+					var lastestclosedsprint = [];
+					for(var i=(values.length-1); i>=0; i--){
+						if(values[i].state=="closed"){
+							console.log(values[i].id);
+						}
+						if(lastestclosedsprint.length==0 && values[i].state=="closed") {
+							lastestclosedsprint.push(values[i]);
+						}
+					}
+					var lastelement = lastestclosedsprint[0];
+
+
+
+
+
+
+
+					//get last leadtime
+					var leadtimecurrent = (moment(lastelement.deploymentdate).diff(moment(lastelement.startDate), 'days', true));
+					//console.log(leadtimecurrent);
+					var technicaldebtcurrent = (lastelement.technical_debt);
+					var leadtimeall = [];
+					var technical_debtall = [];
+					for(i=0;i<(values).length;i++){
+						var startat = moment(values[i].startDate).format("YYYY-MM-DD HH:mm:ss");
+						var endat = moment(values[i].endDate).format("YYYY-MM-DD HH:mm:ss");
+						var currentdt = new moment().format("YYYY-MM-DD HH:mm:ss");
+						////////////console.log("Totao SPrint  = " + values.length);
+						if(values[i].state=="active"){
+							//////console.log(endat+'----------'+startat);
+							var leadtime = (moment(endat).diff(moment(startat), 'days', true));
+							var activesprintsp = values[i].storypoints;
+						} else if(values[i].state=="closed") {
+							avgclosedsprints.push(values[i].storypoints);
+							var leadtimeprevious = (moment(values[i].deploymentdate).diff(moment(values[i].startDate), 'days', true));
+							leadtimeall.push(leadtimeprevious);
+							technical_debtall.push(values[i].technical_debt);
+						}
+					}
+					var sum1 = leadtimeall.reduce(function(a, b) { return a + b; });
+					var avg1 = sum1 / leadtimeall.length;
+					//console.log(avg1);
+					var gettenpercentofleadtime = ((avg1/100) * 10);
+					
+					var maxrange = parseFloat(avg1)+parseFloat(gettenpercentofleadtime);
+					var minrange = parseFloat(avg1)-parseFloat(gettenpercentofleadtime);
+					
+					
+					
+					if(leadtimecurrent>=minrange && leadtimecurrent<=maxrange){
+						// blue
+						var color = 'info';
+					} else if(leadtimecurrent<minrange) {
+						// red
+						var color = 'success';
+					} else if(leadtimecurrent>maxrange) {
+						//green
+						var color = 'danger';
+					}
+					
+					
+					
+					
+					var sum2 = technical_debtall.reduce(function(a, b) { return a + b; });
+					var avg2 = sum2 / technical_debtall.length;
+					//console.log(avg2);
+					var gettenpercentoftb = ((avg1/100) * 10);
+					
+					var maxrangetb = parseFloat(avg2)+parseFloat(gettenpercentoftb);
+					var minrangetb = parseFloat(avg2)-parseFloat(gettenpercentoftb);
+					
+					
+					
+					if(technicaldebtcurrent>=minrangetb && technicaldebtcurrent<=maxrangetb){
+						// blue
+						var colortb = 'info';
+					} else if(leadtimecurrent<minrange) {
+						// red
+						var colortb = 'success';
+					} else if(leadtimecurrent>maxrange) {
+						//green
+						var colortb = 'danger';
+					}
+					
+					
+					
+					console.log("technicaldebtcurrent = "+technicaldebtcurrent);
+					
+					
+
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					
+					//calculate closed sprints average
+					if(avgclosedsprints.length>0){
+						var average = (avgclosedsprints.reduce((a, b) => parseInt(a) + parseInt(b), 0))/avgclosedsprints.length;
+					} else {
+						var average = 0;
+					}
+					 // Calculate Deviation start 
+					if(average>0){
+						var subsandsquare = [];
+						for(i=0;i<(avgclosedsprints).length;i++){
+							var mean = parseInt(avgclosedsprints[i]) - parseFloat(average);
+							subsandsquare.push(mean * mean);
+						}
+						var d = parseFloat((subsandsquare.reduce((a, b) => parseInt(a) + parseInt(b), 0))/subsandsquare.length);
+						var deviation = (Math.sqrt(d).toFixed(2));
+					} else {
+						var deviation = 0;
+					}
+					// Calculate Deviation End
+				callback({"product":product, "leadtime":parseFloat(leadtime).toFixed(2), "closedsprintsAverageVelocity": parseFloat(average).toFixed(2), "closedsprints":avgclosedsprints, "activesprintsp":activesprintsp, "deviation":deviation, "leadtimecurrent":parseFloat(leadtimecurrent).toFixed(2), "leadtimecolor":color, "averageofleadtime":avg1, "technicaldebtcurrent":technicaldebtcurrent, "alltechnicaldebtavg":avg2, "colortb":colortb});						
+				} else {
+					callback({"product":product, "leadtime":"", "closedsprintssp": 0, "closedsprints":[], "activesprintsp":0, "deviation":deviation});
+				}
+			});			
+	},
+	*/
+	resolvepromise: function(obj){
+		return new Promise(function(resolve, reject) {
+			resolve(obj);
+		});
+	},
+	
+	getcountrydatafrommongo: function(){
+		return new Promise(function(resolve, reject) {
+			MongoClient.connect(url, function(err, db) {
+				if (err) throw err;
+				var dbo = db.db("stp_db");
+				dbo.collection("countries").find().toArray(function(err, result) {
+					if (err) throw err;
+					resolve(result);
+					db.close();
+				});
+			}); 
+		});
+	},
+	
+	getproductdatafrommongo: function(){
+		return new Promise(function(resolve, reject) {
+			MongoClient.connect(url, function(err, db) {
+				if (err) throw err;
+				var dbo = db.db("stp_db");
+				dbo.collection("products").find().toArray(function(err, result) {
+					if (err) throw err;
+					resolve(result);
+					db.close();
+				});
+			}); 
+		});
+	},
+	
+	insertintocassandra: function(object, callback1){
+		async.forEach(object, function (item, callback){ 
+			var query = "insert into countries(id, country_code,country_name) values(?,?,?)";
+			con.query(query, [TimeUuid.now(), item.country_code, item.country_name], function(err, result) {
+				if(err) throw err;
+				callback();
+			});
+			}, function() {
+				callback1('inserted');
+		});
+	},
+	
+	insertprointocassandra: function(object, callback1){
+		async.forEach(object, function (item, callback){ 
+			var query = "insert into products(id,class,organization,jiraboardname,methodology,productkey,productname) values(?,?,?,?,?,?,?)";
+			con.query(query, [TimeUuid.now(), item._class, "defaultOrganization", item.jiraBoardName, item.methodology, item.productKey, item.productName], function(err, result) {
+				if(err) throw err;
+				callback();
+			});
+			}, function() {
+				callback1('inserted');
+		});
+	},
+	
+	inserttechdebt: function(object){
+		return new Promise(function(resolve, reject) {
+			var query = "insert into technical_debt(id,projectname,totalissues,technicaldebt, loc_changed) values(?,?,?,?,?)";
+				con.query(query, [TimeUuid.now(),object.component.name, object.component.measures[1].value, object.component.measures[2].value, object.component.measures[0].value],{ prepare : true }, function(err, result) {
+					if(err) throw err;
+					resolve('done');
+			});
+		});
+	},
+	
+	gettechnicaldebt: function(key){
+		return new Promise(function(resolve, reject) {
+			request.get('http://172.16.151.62:8090/technical_debt?jiraStoryKey='+key, function (error, response, body) {
+				if(error) reject(error);
+				resolve(body);
+			});
+		});
+	}
+}
+
+function gettdissues(p_id, callback){
+	var query = "select * from technical_debt where product_id = '"+p_id+"'";
+	con.query(query, function(err, result) {
+		if(err) throw err;
+		callback(result);
+	});
+}
+
+
+function standardDeviation(values, callback){
+  var avg = average(values);
+  
+  var squareDiffs = values.map(function(value){
+    var diff = value - avg;
+    var sqrDiff = diff * diff;
+    callback(sqrDiff);
+  });
+  
+  var avgSquareDiff = average(squareDiffs);
+ 
+  var stdDev = Math.sqrt(avgSquareDiff);
+  callback(stdDev);
+}
+ 
+function average(data){
+  var sum = data.reduce(function(sum, value){
+    return sum + value;
+  }, 0);
+ 
+  var avg = sum / data.length;
+  return avg;
+}
+
+function getthissprintdeploymentdate(sprintid, cb){
+	var query = "select * from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'deployment_date'";
+	con.querycute(query, function(err, result) {
+		cb(result[0].attribute_value);
+	});
+}
+
+function getDeploymentDateSprintWise(sprintid, startdate){
+	var data = [];
+	var query = "select * from sonar_record where sprint_id = '"+sprintid+"' AND attribute_name = 'deployment_date' ";
+	con.querycute(query, function(err, result) {
+		data.push((moment(result[0].attribute_value).diff(moment(startdate), 'days', true)));
+	});
+	return data;
+}
+
+function sort_by_key_value(arr, key) {
+  return _.sortBy(arr, function(item) {
+    return String(item[key]).toLowerCase();
+  });
+}
+
+function deleteAllRecordForThisProjectFromKairosdb(project_key, cb){
+	var v = "velocitydemo_"+project_key.replace(/'/g, "\\'");
+	request.delete({
+		url: 'http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/metric/'+v,
+	}, function (error, response, body) {
+		if(error) reject(error);
+		var v = "velocityforstandarddeviation_"+project_key.replace(/'/g, "\\'");
+		request.delete({
+			url: 'http://'+process.env.KAIROSDB_IP+':'+process.env.KAIROS_PORT+'/api/v1/metric/'+v,
+		}, function (error, response, body) {
+			if(error) reject(error);
+			cb(body);
+		});
+	});
+}
+
+function getEntitiesofSprints(pk, sprint_id, cb){
+	request.get(process.env.JAVA_APIS_BASE_URL+'getSprintDetailFromSprintId?projectKey='+pk+'&sprintID='+sprint_id, function (error, response, body) {
+		log.info(body);
+		var body = JSON.parse(body);
+		cb(body);
+	});
+}
